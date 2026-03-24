@@ -2,10 +2,12 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const { Server } = require("ws");
-const Razorpay = require('razorpay');   // ✅ Razorpay SDK
+const Razorpay = require('razorpay');
+const QRCode = require('qrcode');   // ✅ For QR generation
 
 const app = express();
 app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true })); // for form submissions
 
 // Razorpay credentials from environment variables
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
@@ -21,6 +23,43 @@ app.get('/', (req, res) => {
 const razorpay = new Razorpay({
   key_id: RAZORPAY_KEY_ID,
   key_secret: RAZORPAY_KEY_SECRET,
+});
+
+// --- Payment form route ---
+app.get('/pay', (req, res) => {
+  res.send(`
+    <form action="/create-payment" method="post">
+      <label>Enter Amount (₹):</label>
+      <input type="number" name="amount" required />
+      <button type="submit">Generate Payment</button>
+    </form>
+  `);
+});
+
+// --- Create payment link + QR ---
+app.post('/create-payment', async (req, res) => {
+  try {
+    const amount = parseInt(req.body.amount) * 100; // Rs → paise
+
+    const paymentLink = await razorpay.paymentLink.create({
+      amount,
+      currency: "INR",
+      description: "Smart Energy Meter Recharge",
+      callback_url: "https://smart-energy-backend-gorw.onrender.com/razorpay/webhook",
+      callback_method: "post"
+    });
+
+    const qrDataUrl = await QRCode.toDataURL(paymentLink.short_url);
+
+    res.send(`
+      <h2>Scan QR or click link to pay</h2>
+      <img src="${qrDataUrl}" />
+      <p><a href="${paymentLink.short_url}" target="_blank">Pay Now</a></p>
+    `);
+  } catch (err) {
+    console.error("⚠️ Payment link error:", err);
+    res.status(500).send("Error creating payment link");
+  }
 });
 
 // --- Webhook route ---
@@ -40,9 +79,15 @@ app.post('/razorpay/webhook', (req, res) => {
       if (req.body.event === "payment.captured") {
         const payment = req.body.payload.payment.entity;
         const amountRs = payment.amount / 100; // paise → Rs
+
+        // --- Convert amount to units ---
+        const UNIT_PRICE = 10; // Rs per unit
+        const units = Math.floor(amountRs / UNIT_PRICE);
+
         console.log("💰 Payment captured:", payment.id, "Amount:", amountRs);
-        console.log("📦 Full payload:", JSON.stringify(payment, null, 2)); // extra logging for testing
-        notifyESP32(amountRs); // 🔔 send to ESP32
+        console.log("🔋 Units to add:", units);
+
+        notifyESP32(units); // send units to ESP32
       }
       res.status(200).send("OK");
     } else {
@@ -69,10 +114,10 @@ wss.on("connection", ws => {
   ws.on("message", msg => console.log("ESP32 says:", msg));
 });
 
-function notifyESP32(amount) {
+function notifyESP32(units) {
   wss.clients.forEach(client => {
     if (client.readyState === 1) {
-      client.send(`CONFIRM:${amount}`);
+      client.send(`UNITS:${units}`);
     }
   });
 }
