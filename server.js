@@ -36,17 +36,18 @@ app.get('/pay', (req, res) => {
   `);
 });
 
-// --- Create payment link + QR ---
+// --- Create payment link + QR (simplified, no callback URL) ---
 app.post('/create-payment', async (req, res) => {
   try {
     const amount = parseInt(req.body.amount) * 100; // Rs → paise
+    if (isNaN(amount) || amount <= 0) {
+      return res.status(400).send("Invalid amount");
+    }
 
     const paymentLink = await razorpay.paymentLink.create({
       amount,
       currency: "INR",
-      description: "Smart Energy Meter Recharge",
-      callback_url: "https://smart-energy-backend-gorw.onrender.com/razorpay/webhook",
-      callback_method: "post"
+      description: "Smart Energy Meter Recharge"
     });
 
     const qrDataUrl = await QRCode.toDataURL(paymentLink.short_url);
@@ -58,11 +59,11 @@ app.post('/create-payment', async (req, res) => {
     `);
   } catch (err) {
     console.error("⚠️ Payment link error:", err);
-    res.status(500).send("Error creating payment link");
+    res.status(500).send("Error creating payment link: " + err.message);
   }
 });
 
-// --- Webhook route ---
+// --- Webhook route (keep for later when you add callback back) ---
 app.post('/razorpay/webhook', (req, res) => {
   try {
     const body = JSON.stringify(req.body);
@@ -80,7 +81,6 @@ app.post('/razorpay/webhook', (req, res) => {
         const payment = req.body.payload.payment.entity;
         const amountRs = payment.amount / 100; // paise → Rs
 
-        // --- Convert amount to units ---
         const UNIT_PRICE = 10; // Rs per unit
         const units = Math.floor(amountRs / UNIT_PRICE);
 
