@@ -3,49 +3,39 @@ const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const { Server } = require("ws");
 const Razorpay = require('razorpay');
-const QRCode = require('qrcode');   // ✅ For QR generation
+const QRCode = require('qrcode');
 
 const app = express();
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true })); // for form submissions
+app.use(bodyParser.urlencoded({ extended: true }));
 
-// Razorpay credentials from environment variables
+// ---------------- ENV ----------------
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
-// --- Root route for testing ---
+// ---------------- ROOT ----------------
 app.get('/', (req, res) => {
-  res.send('Smart Energy Backend is running on Render!');
+  res.send('✅ Smart Energy Backend Running');
 });
 
-// --- Razorpay instance ---
+// ---------------- RAZORPAY ----------------
 const razorpay = new Razorpay({
   key_id: RAZORPAY_KEY_ID,
   key_secret: RAZORPAY_KEY_SECRET,
 });
 
-// --- Payment form route ---
-app.get('/pay', (req, res) => {
-  res.send(`
-    <form action="/create-payment" method="post">
-      <label>Enter Amount (₹):</label>
-      <input type="number" name="amount" required />
-      <button type="submit">Generate Payment</button>
-    </form>
-  `);
-});
-
-// --- Create payment link + QR (simplified, no callback URL) ---
-app.post('/create-payment', async (req, res) => {
+// ---------------- PAYMENT ROUTE (FIXED TO GET) ----------------
+app.get('/create-payment', async (req, res) => {
   try {
-    const amount = parseInt(req.body.amount) * 100; // Rs → paise
-    if (isNaN(amount) || amount <= 0) {
+    const amountRs = parseInt(req.query.amount);
+
+    if (isNaN(amountRs) || amountRs <= 0) {
       return res.status(400).send("Invalid amount");
     }
 
     const paymentLink = await razorpay.paymentLink.create({
-      amount,
+      amount: amountRs * 100, // Rs → paise
       currency: "INR",
       description: "Smart Energy Meter Recharge"
     });
@@ -53,17 +43,18 @@ app.post('/create-payment', async (req, res) => {
     const qrDataUrl = await QRCode.toDataURL(paymentLink.short_url);
 
     res.send(`
-      <h2>Scan QR or click link to pay</h2>
+      <h2>Scan QR to Pay</h2>
       <img src="${qrDataUrl}" />
       <p><a href="${paymentLink.short_url}" target="_blank">Pay Now</a></p>
     `);
+
   } catch (err) {
-    console.error("⚠️ Payment link error:", err);
-    res.status(500).send("Error creating payment link: " + err.message);
+    console.error("⚠️ Payment error:", err);
+    res.status(500).send("Error: " + err.message);
   }
 });
 
-// --- Webhook route (keep for later when you add callback back) ---
+// ---------------- WEBHOOK ----------------
 app.post('/razorpay/webhook', (req, res) => {
   try {
     const body = JSON.stringify(req.body);
@@ -79,19 +70,20 @@ app.post('/razorpay/webhook', (req, res) => {
 
       if (req.body.event === "payment.captured") {
         const payment = req.body.payload.payment.entity;
-        const amountRs = payment.amount / 100; // paise → Rs
+        const amountRs = payment.amount / 100;
 
-        const UNIT_PRICE = 10; // Rs per unit
+        const UNIT_PRICE = 10;
         const units = Math.floor(amountRs / UNIT_PRICE);
 
-        console.log("💰 Payment captured:", payment.id, "Amount:", amountRs);
-        console.log("🔋 Units to add:", units);
+        console.log("💰 Payment:", amountRs);
+        console.log("🔋 Units:", units);
 
-        notifyESP32(units); // send units to ESP32
+        notifyESP32(units);
       }
+
       res.status(200).send("OK");
     } else {
-      console.warn("❌ Invalid signature!");
+      console.warn("❌ Invalid webhook signature");
       res.status(400).send("Invalid signature");
     }
   } catch (err) {
@@ -100,21 +92,32 @@ app.post('/razorpay/webhook', (req, res) => {
   }
 });
 
-// --- Start server ---
+// ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
+
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// --- WebSocket server attached to Express ---
-const wss = new Server({ server });
+// ---------------- WEBSOCKET (FIXED PATH) ----------------
+const wss = new Server({ server, path: "/ws" });
 
-wss.on("connection", ws => {
-  console.log("🔌 ESP32 connected via WebSocket");
-  ws.on("message", msg => console.log("ESP32 says:", msg));
+wss.on("connection", (ws) => {
+  console.log("🔌 ESP32 connected");
+
+  ws.on("message", (msg) => {
+    console.log("📩 ESP32:", msg.toString());
+  });
+
+  ws.on("close", () => {
+    console.log("❌ ESP32 disconnected");
+  });
 });
 
+// ---------------- SEND DATA TO ESP32 ----------------
 function notifyESP32(units) {
+  console.log("📡 Sending units to ESP32:", units);
+
   wss.clients.forEach(client => {
     if (client.readyState === 1) {
       client.send(`UNITS:${units}`);
