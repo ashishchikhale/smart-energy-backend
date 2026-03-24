@@ -1,0 +1,19 @@
+{
+  "name": "smart-energy-backend",
+  "version": "1.0.0",
+  "description": "Smart Energy Meter backend with Razorpay webhook and WebSocket for ESP32",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "ws": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "Ashish Arun Chikhale",
+  "license": "ISC"
+}
