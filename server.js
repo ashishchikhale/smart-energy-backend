@@ -25,7 +25,7 @@ const razorpay = new Razorpay({
   key_secret: RAZORPAY_KEY_SECRET,
 });
 
-// ---------------- PAYMENT ROUTE (FIXED TO GET) ----------------
+// ---------------- PAYMENT ROUTE ----------------
 app.get('/create-payment', async (req, res) => {
   try {
     const amountRs = parseInt(req.query.amount);
@@ -73,10 +73,12 @@ app.post('/razorpay/webhook', (req, res) => {
         const amountRs = payment.amount / 100;
 
         const UNIT_PRICE = 10;
-        const units = Math.floor(amountRs / UNIT_PRICE);
+
+        // ✅ FIXED: keep decimal units
+        const units = amountRs / UNIT_PRICE;
 
         console.log("💰 Payment:", amountRs);
-        console.log("🔋 Units:", units);
+        console.log("🔋 Units:", units.toFixed(2));
 
         notifyESP32(units);
       }
@@ -99,7 +101,7 @@ const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// ---------------- WEBSOCKET (FIXED PATH) ----------------
+// ---------------- WEBSOCKET ----------------
 const wss = new Server({ server, path: "/ws" });
 
 wss.on("connection", (ws) => {
@@ -114,13 +116,13 @@ wss.on("connection", (ws) => {
   });
 });
 
-// ---------------- SEND DATA TO ESP32 ----------------
+// ---------------- SEND DATA ----------------
 function notifyESP32(units) {
-  console.log("📡 Sending units to ESP32:", units);
+  console.log("📡 Sending units to ESP32:", units.toFixed(2));
 
   wss.clients.forEach(client => {
     if (client.readyState === 1) {
-      client.send(`UNITS:${units}`);
+      client.send(`UNITS:${units.toFixed(2)}`); // ✅ FIXED
     }
   });
 }
