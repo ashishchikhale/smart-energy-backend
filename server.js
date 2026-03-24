@@ -6,11 +6,16 @@ const { Server } = require("ws");
 const app = express();
 app.use(bodyParser.json());
 
-// Razorpay credentials
-const RAZORPAY_KEY_ID = "your_key_id";
-const RAZORPAY_KEY_SECRET = "your_key_secret";
-const WEBHOOK_SECRET = "@Ashish92844"; 
-const WEBHOOK_ID = "your_webhook_id"; 
+// Razorpay credentials from environment variables
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "dummy_key";
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "dummy_secret";
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "dummy_webhook_secret";
+const WEBHOOK_ID = process.env.WEBHOOK_ID || "dummy_webhook_id";
+
+// --- Root route for testing ---
+app.get('/', (req, res) => {
+  res.send('Smart Energy Backend is running on Render!');
+});
 
 // --- Webhook route ---
 app.post('/razorpay/webhook', (req, res) => {
