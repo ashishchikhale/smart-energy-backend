@@ -1,3 +1,4 @@
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
@@ -35,7 +36,7 @@ app.get('/create-payment', async (req, res) => {
     }
 
     const paymentLink = await razorpay.paymentLink.create({
-      amount: amountRs * 100, // Rs → paise
+      amount: amountRs * 100,
       currency: "INR",
       description: "Smart Energy Meter Recharge"
     });
@@ -73,8 +74,6 @@ app.post('/razorpay/webhook', (req, res) => {
         const amountRs = payment.amount / 100;
 
         const UNIT_PRICE = 10;
-
-        // ✅ FIXED: keep decimal units
         const units = amountRs / UNIT_PRICE;
 
         console.log("💰 Payment:", amountRs);
@@ -104,16 +103,54 @@ const server = app.listen(PORT, () => {
 // ---------------- WEBSOCKET ----------------
 const wss = new Server({ server, path: "/ws" });
 
+// 🔥 Heartbeat function
+function heartbeat() {
+  this.isAlive = true;
+}
+
 wss.on("connection", (ws) => {
   console.log("🔌 ESP32 connected");
 
+  ws.isAlive = true;
+
+  // ✅ Handle pong
+  ws.on("pong", heartbeat);
+
   ws.on("message", (msg) => {
-    console.log("📩 ESP32:", msg.toString());
+    const message = msg.toString();
+    console.log("📩 ESP32:", message);
+
+    // Optional ping-pong support
+    if (message === "ping") {
+      ws.send("pong");
+    }
   });
 
   ws.on("close", () => {
     console.log("❌ ESP32 disconnected");
   });
+
+  ws.on("error", (err) => {
+    console.log("⚠️ WS Error:", err.message);
+  });
+});
+
+// 🔥 Keep-alive system (VERY IMPORTANT)
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log("💀 Terminating dead client");
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping(); // send ping
+  });
+}, 10000);
+
+// Cleanup
+wss.on("close", () => {
+  clearInterval(interval);
 });
 
 // ---------------- SEND DATA ----------------
@@ -121,8 +158,9 @@ function notifyESP32(units) {
   console.log("📡 Sending units to ESP32:", units.toFixed(2));
 
   wss.clients.forEach(client => {
-    if (client.readyState === 1) {
-      client.send(`UNITS:${units.toFixed(2)}`); // ✅ FIXED
+    if (client.readyState === client.OPEN) {
+      client.send(`UNITS:${units.toFixed(2)}`);
     }
   });
 }
+
